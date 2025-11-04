@@ -8,14 +8,26 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import VideoMeeting from "@/components/VideoMeeting";
 
+// 1. MODIFIED: Reads the URL from your .env.local file
+// This will be "http://localhost:10000" on your local machine
+// and "https://educonnect-backend.onrender.com" when deployed
+const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL;
+
 const FacultyDashboard = () => {
   const navigate = useNavigate();
   const [requests, setRequests] = useState<any[]>([]);
   const [activeMeeting, setActiveMeeting] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
 
+  // 2. ADDED STATE for dynamic earnings/profile data
+  const [earnings, setEarnings] = useState({
+    total: 0, // You would need more backend logic to calculate this
+    thisMonth: 0, // You would need more backend logic to calculate this
+    pendingWithdraw: 0, // You would need more backend logic to calculate this
+    hourlyRate: 0,
+  });
+
   useEffect(() => {
-    // 1. MODIFIED to use async IIFE to get user first
     (async () => {
       const { data } = await supabase.auth.getUser();
       const currentUser = data?.user ?? null;
@@ -25,9 +37,14 @@ const FacultyDashboard = () => {
         return;
       }
       setUser(currentUser);
+      
+      // Load requests from Supabase
       loadRequests(currentUser.id);
+      
+      // Load profile data (like rate) from MongoDB
+      loadFacultyProfile(currentUser.id);
 
-      // 2. MODIFIED to be more specific and efficient
+      // Realtime listener for Supabase 'requests' table
       const channel = supabase
         .channel(`faculty-requests-${currentUser.id}`)
         .on(
@@ -41,14 +58,12 @@ const FacultyDashboard = () => {
           (payload) => {
             console.log('--- FACULTY GOT A REALTIME EVENT ---', payload);
 
-            // A student sent a new request
             if (payload.eventType === 'INSERT') {
               const newData = payload.new as any;
               setRequests(currentRequests => [newData, ...currentRequests]);
               toast.info(`New request from ${newData.student_name}!`);
             }
 
-            // A student cancelled their request
             if (payload.eventType === 'DELETE') {
               const oldData = payload.old as any;
               setRequests(currentRequests =>
@@ -56,8 +71,6 @@ const FacultyDashboard = () => {
               );
             }
             
-            // This faculty accepted/rejected (this code is optional,
-            // as loadRequests() will also be called, but this is faster)
             if (payload.eventType === 'UPDATE') {
               const oldData = payload.old as any;
               setRequests(currentRequests =>
@@ -95,18 +108,34 @@ const FacultyDashboard = () => {
     }
     setRequests(data || []);
   };
-
-  // This is still static data.
-  // We can modify this next to be dynamic!
-  const earnings = {
-    total: 2450,
-    thisMonth: 850,
-    pendingWithdraw: 1200,
-    hourlyRate: 50,
+  
+  // 3. ADDED function to load faculty profile from MongoDB
+  const loadFacultyProfile = async (facultyId: string) => {
+    try {
+      // This uses the new /api/faculty/:id route from your server.js
+      const response = await fetch(`${BACKEND_URL}/api/faculty/${facultyId}`);
+      if (!response.ok) throw new Error('Failed to fetch faculty profile');
+      
+      const profileData = await response.json();
+      
+      // Set the hourly rate from the DB
+      // The other values are placeholders for now
+      setEarnings({
+        hourlyRate: profileData.rate || 0,
+        total: 2450, // Placeholder
+        thisMonth: 850, // Placeholder
+        pendingWithdraw: 1200, // Placeholder
+      });
+      
+    } catch (error) {
+      console.error('Error loading faculty profile:', error);
+      toast.error('Could not load your faculty profile.');
+    }
   };
 
+  // 4. DELETED static 'earnings' object
+
   const handleAccept = async (requestId: string, studentName: string) => {
-    // Generate unique meeting room ID
     const meetingRoomId = `educonnect-${requestId}-${Date.now()}`;
 
     const { error } = await supabase
@@ -125,17 +154,15 @@ const FacultyDashboard = () => {
 
     toast.success(`Accepted request from ${studentName}! Starting video meeting...`);
     
-    // Open video meeting
     setTimeout(() => {
       setActiveMeeting(meetingRoomId);
     }, 1000);
   };
 
-  // 3. MODIFIED handleReject to DELETE the request
   const handleReject = async (requestId: string, studentName: string) => {
     const { error } = await supabase
       .from('requests')
-      .delete() // <-- Changed from update() to delete()
+      .delete()
       .eq('id', requestId);
 
     if (error) {
@@ -145,11 +172,11 @@ const FacultyDashboard = () => {
     }
 
     toast.info(`Rejected request from ${studentName}`);
-    // Realtime listener will automatically remove it from the list
   };
 
+  // 5. MODIFIED handleWithdraw to navigate
   const handleWithdraw = () => {
-    toast.success(`Withdrawal request submitted for $${earnings.pendingWithdraw}`);
+    navigate('/withdraw');
   };
 
   const handleLogout = async () => {
@@ -278,7 +305,6 @@ const FacultyDashboard = () => {
                         <Button
                           variant="destructive"
                           size="sm"
-                          // 4. ONCLICK IS NOW handleReject
                           onClick={() => handleReject(request.id, request.student_name)}
                         >
                           <XCircle className="w-4 h-4 mr-1" />
@@ -306,3 +332,4 @@ const FacultyDashboard = () => {
 };
 
 export default FacultyDashboard;
+

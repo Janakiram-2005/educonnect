@@ -2,12 +2,16 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-// 1. IMPORTED XCircle FOR THE CANCEL BUTTON
 import { LogOut, BookOpen, Calendar, DollarSign, Video, XCircle } from "lucide-react"; 
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import VideoMeeting from "@/components/VideoMeeting";
+
+// 1. MODIFIED: Reads the URL from your .env.local file
+// This will be "http://localhost:10000" on your local machine
+// and "https://educonnect-backend.onrender.com" when deployed
+const BACKEND_URL = import.meta.env.VITE_BACKEND_API_URL;
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -30,16 +34,19 @@ const StudentDashboard = () => {
         }
 
         setUser(currentUser);
+        // Load requests from Supabase (as before)
         loadMyRequests(currentUser.id);
+        
+        // Load subjects & faculty from MongoDB (new!)
         loadSubjects();
         loadFaculty();
 
+        // Supabase Realtime for requests (as before)
         const channel = supabase
           .channel(`student-requests-${currentUser.id}`)
           .on(
             'postgres_changes',
             {
-              // 3. LISTEN FOR ALL EVENT TYPES
               event: '*', 
               schema: 'public',
               table: 'requests',
@@ -48,14 +55,12 @@ const StudentDashboard = () => {
             (payload) => {
               console.log('--- STUDENT GOT A REALTIME EVENT ---', payload);
 
-              // Handle INSERT
               if (payload.eventType === 'INSERT') {
                 const newData = payload.new as any;
                 setMyRequests(currentRequests => [newData, ...currentRequests]);
                 toast.success(`Request sent to ${newData.faculty_name}!`);
               }
 
-              // Handle UPDATE
               if (payload.eventType === 'UPDATE') {
                 const newData = payload.new as any;
                 if (
@@ -73,7 +78,6 @@ const StudentDashboard = () => {
                 );
               }
 
-              // Handle DELETE
               if (payload.eventType === 'DELETE') {
                 const oldData = payload.old as any;
                 setMyRequests(currentRequests => 
@@ -115,16 +119,29 @@ const StudentDashboard = () => {
     setMyRequests(data || []);
   };
 
+  // --- MODIFIED: Load Subjects from MongoDB ---
   const loadSubjects = async () => {
-    const { data, error } = await (supabase as any).from('subjects').select('*');
-    if (error) console.error("Error loading subjects", error);
-    else setSubjects(data || []);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/subjects`);
+      if (!response.ok) throw new Error('Failed to fetch subjects');
+      const data = await response.json();
+      setSubjects(data || []);
+    } catch (error) {
+      console.error("Error loading subjects:", error);
+      // Don't toast error on page load
+    }
   };
 
+  // --- MODIFIED: Load Faculty from MongoDB ---
   const loadFaculty = async () => {
-    const { data, error } = await (supabase as any).from('faculty').select('*');
-    if (error) console.error("Error loading faculty", error);
-    else setFaculty(data || []);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/faculty`);
+      if (!response.ok) throw new Error('Failed to fetch faculty');
+      const data = await response.json();
+      setFaculty(data || []);
+    } catch (error) {
+      console.error("Error loading faculty:", error);
+    }
   };
 
   const handleRequest = async (facultyId: string, facultyName: string, subject: string) => {
@@ -138,7 +155,7 @@ const StudentDashboard = () => {
       .insert({
         student_id: user.id,
         student_name: user.email?.split('@')[0] || 'Student',
-        faculty_id: facultyId,
+        faculty_id: facultyId, // This is the Supabase auth ID, which matches the MongoDB 'id'
         faculty_name: facultyName,
         subject: subject,
         status: 'pending'
@@ -149,13 +166,12 @@ const StudentDashboard = () => {
       console.error(error);
       return;
     }
-    // We don't need toast() or loadMyRequests() here,
-    // the realtime listener will handle both automatically.
   };
 
-  // 2. ADDED THE NEW handleCancelRequest FUNCTION
   const handleCancelRequest = async (requestId: string) => {
-    if (!confirm("Are you sure you want to cancel this request?")) {
+    // We use a simple browser confirm here.
+    // In a real app, you might use a custom modal.
+    if (!window.confirm("Are you sure you want to cancel this request?")) {
       return;
     }
     const { error } = await supabase
@@ -166,7 +182,6 @@ const StudentDashboard = () => {
     if (error) {
       toast.error(`Failed to cancel request: ${error.message}`);
     }
-    // No toast.info() needed, realtime listener will handle it.
   };
 
   const handleLogout = async () => {
@@ -174,6 +189,11 @@ const StudentDashboard = () => {
     localStorage.removeItem('userType');
     navigate("/");
     toast.info("Logged out successfully");
+  };
+  
+  // --- ADDED: Function for the Pay Now button ---
+  const handlePaymentClick = () => {
+    navigate('/payment');
   };
 
   return (
@@ -211,26 +231,40 @@ const StudentDashboard = () => {
                 <p className="text-3xl font-bold text-accent">$29.99</p>
                 <p className="text-sm text-muted-foreground mt-1">Due on 15th of each month</p>
               </div>
-              <Button variant="success">Pay Now</Button>
+              {/* --- MODIFIED: Pay Now button --- */}
+              <Button variant="success" onClick={handlePaymentClick}>Pay Now</Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* --- SUBJECTS --- */}
+        {/* --- SUBJECTS (MODIFIED with links) --- */}
         <section className="mb-12">
           <h3 className="text-2xl font-semibold mb-6 flex items-center gap-2">
             <BookOpen className="w-6 h-6 text-primary" />
             Available Subjects
           </h3>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {subjects.map((subject) => (
-              <Card key={subject.id} className="hover:scale-105 transition-transform">
-                <CardHeader>
-                  <CardTitle className="text-xl">{subject.name}</CardTitle>
-                  <CardDescription>{subject.description}</CardDescription>
-                </CardHeader>
-              </Card>
-            ))}
+            {subjects.map((subject) => {
+              // Create a YouTube search link for the subject
+              const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(subject.name + ' tutorial')}`;
+              
+              return (
+                <a
+                  key={subject._id || subject.id} // Use _id from MongoDB
+                  href={youtubeSearchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:scale-105 transition-transform"
+                >
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xl">{subject.name}</CardTitle>
+                      <CardDescription>{subject.description}</CardDescription>
+                    </CardHeader>
+                  </Card>
+                </a>
+              );
+            })}
           </div>
         </section>
 
@@ -241,8 +275,9 @@ const StudentDashboard = () => {
             Available Faculty
           </h3>
           <div className="grid md:grid-cols-2 gap-6">
+            {/* Use prof.id here, which links to Supabase auth user.id */}
             {faculty.map((prof) => (
-              <Card key={prof.id}>
+              <Card key={prof.id}> 
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div>
@@ -281,7 +316,7 @@ const StudentDashboard = () => {
           </div>
         </section>
 
-        {/* --- MY REQUESTS (MODIFIED) --- */}
+        {/* --- MY REQUESTS --- */}
         {myRequests.length > 0 && (
           <section className="mt-12">
             <h3 className="text-2xl font-semibold mb-6">My Requests</h3>
@@ -299,7 +334,6 @@ const StudentDashboard = () => {
                           {req.status}
                         </Badge>
                         
-                        {/* 4. ADDED CANCEL BUTTON (conditional) */}
                         {req.status === 'pending' && (
                           <Button 
                             variant="destructive" 
@@ -347,3 +381,4 @@ const StudentDashboard = () => {
 };
 
 export default StudentDashboard;
+

@@ -8,6 +8,11 @@ import { GraduationCap, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
+// 1. ADD YOUR NEW BACKEND URL HERE
+// (This will be your Render Web Service URL after you deploy it)
+// You can use "http://localhost:10000" for local testing
+const BACKEND_URL = "http://localhost:10000"; // <-- ⚠️ UPDATE THIS FOR DEPLOYMENT
+
 const Login = () => {
   const navigate = useNavigate();
   const [userType, setUserType] = useState<"student" | "faculty" | null>(null);
@@ -21,25 +26,31 @@ const Login = () => {
   const [subject, setSubject] = useState("");
   const [rate, setRate] = useState(50); // Default $50
 
-  // --- HELPER FUNCTION TO CHECK USER TYPE FROM DB ---
+  // --- MODIFIED HELPER FUNCTION TO CHECK MONGODB ---
   const checkUserTypeAndNavigate = async (userId: string) => {
-    // Check if user has a profile in the 'faculty' table
-    // cast supabase to any at runtime because the generated types may not
-    // include the 'faculty' table in this project
-    const { data: facultyProfile } = await (supabase as any)
-      .from('faculty')
-      .select('id')
-      .eq('id', userId)
-      .single();
+    try {
+      // Check if user has a profile in MongoDB via our backend
+      const response = await fetch(`${BACKEND_URL}/api/faculty/${userId}`);
 
-    if (facultyProfile) {
-      localStorage.setItem('userType', 'faculty');
-      navigate("/faculty");
-      return 'faculty';
-    } else {
-      localStorage.setItem('userType', 'student');
-      navigate("/student");
-      return 'student';
+      if (response.ok) { // Status 200 - 299, profile was found
+        localStorage.setItem('userType', 'faculty');
+        navigate("/faculty");
+        return 'faculty';
+      } else if (response.status === 404) { // Not found, must be a student
+        localStorage.setItem('userType', 'student');
+        navigate("/student");
+        return 'student';
+      } else {
+        // Handle other errors (like backend is down)
+        const err = await response.json();
+        throw new Error(err.message || 'Failed to verify user type from backend');
+      }
+    } catch (error: any) {
+      console.error('Auth error:', error);
+      toast.error(`Failed to verify user type: ${error.message}. Logging out.`);
+      // Log out the user if we can't determine their type
+      await supabase.auth.signOut();
+      return null;
     }
   };
 
@@ -66,7 +77,6 @@ const Login = () => {
       return;
     }
 
-    // --- NEW VALIDATION FOR FACULTY SIGNUP ---
     if (!isLogin && userType === 'faculty' && (!fullName || !subject || rate <= 0)) {
       toast.error("Please fill in all your faculty profile details");
       return;
@@ -76,7 +86,7 @@ const Login = () => {
 
     try {
       if (isLogin) {
-        // --- MODIFIED LOGIN LOGIC ---
+        // --- LOGIN LOGIC (Unchanged) ---
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -87,10 +97,12 @@ const Login = () => {
 
         // Check DB for user type and navigate
         const type = await checkUserTypeAndNavigate(data.user.id);
-        toast.success(`Welcome back, ${type === 'student' ? 'Student' : 'Faculty'}!`);
-
+        if (type) {
+          toast.success(`Welcome back, ${type === 'student' ? 'Student' : 'Faculty'}!`);
+        }
       } else {
-        // --- MODIFIED SIGNUP LOGIC ---
+        // --- SIGNUP LOGIC ---
+        // 1. Create the user in Supabase Auth
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -102,21 +114,26 @@ const Login = () => {
         if (signUpError) throw signUpError;
         if (!signUpData.user) throw new Error("Signup failed, user not created.");
 
-        // Check if we need to create a faculty profile
+        // 2. Check if we need to create a faculty profile
         if (userType === 'faculty') {
-          const { error: profileError } = await (supabase as any)
-            .from('faculty')
-            .insert({
+          
+          // --- MODIFIED: Create profile in MongoDB via our backend ---
+          const profileResponse = await fetch(`${BACKEND_URL}/api/faculty`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
               id: signUpData.user.id, // Link to the auth.users table
               name: fullName,
               subject: subject,
               rate: rate,
-              available: true, // Set default availability
-              rating: 5,         // Set default rating
-            });
+              available: true,
+              rating: 5,
+            })
+          });
 
-          if (profileError) {
+          if (!profileResponse.ok) {
             // This is a partial failure, but we should let the user know
+            const profileError = await profileResponse.json();
             throw new Error(`Account created, but profile setup failed: ${profileError.message}`);
           }
           
@@ -297,3 +314,4 @@ const Login = () => {
 };
 
 export default Login;
+
