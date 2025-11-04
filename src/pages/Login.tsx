@@ -287,7 +287,7 @@ const Login = () => {
                         type="number"
                         placeholder="50"
                         value={rate}
-                        onChange={(e) => setRate(parseInt(e.g.target.value) || 0)}
+                        onChange={(e) => setRate(parseInt(e.target.value) || 0)}
                         autoComplete="off"
                         required
                       />
