@@ -11,7 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 // 1. ADD YOUR NEW BACKEND URL HERE
 // (This will be your Render Web Service URL after you deploy it)
 // You can use "http://localhost:10000" for local testing
-const BACKEND_URL = "http://localhost:10000"; // <-- ⚠️ UPDATE THIS FOR DEPLOYMENT
+const BACKEND_URL = "https://educonnect1-2u2r.onrender.com"; // <-- ⚠️ UPDATED FOR DEPLOYMENT
 
 const Login = () => {
   const navigate = useNavigate();
@@ -236,6 +236,7 @@ const Login = () => {
                     placeholder="your@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
                     required
                   />
                 </div>
@@ -247,6 +248,7 @@ const Login = () => {
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    autoComplete={isLogin ? "current-password" : "new-password"}
                     required
                   />
                 </div>
@@ -262,6 +264,7 @@ const Login = () => {
                         placeholder="Dr. Jane Doe"
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
+                        autoComplete="name"
                         required
                       />
                     </div>
@@ -273,6 +276,7 @@ const Login = () => {
                         placeholder="e.g., Physics"
                         value={subject}
                         onChange={(e) => setSubject(e.target.value)}
+                        autoComplete="off"
                         required
                       />
                     </div>
@@ -283,7 +287,8 @@ const Login = () => {
                         type="number"
                         placeholder="50"
                         value={rate}
-                        onChange={(e) => setRate(parseInt(e.target.value) || 0)}
+                        onChange={(e) => setRate(parseInt(e.g.target.value) || 0)}
+                        autoComplete="off"
                         required
                       />
                     </div>
